@@ -1,0 +1,891 @@
+---
+title: "Genomic Prediction using Reaction Norm Parameters"
+author: "Fatma Ozair"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r Setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+
+***Required Files Below***
+
+[Data Files Here](https://github.com/fatmaoz25/ReactionNormGenomicPrediction) -- Store all files in a folder named **"RNGP"** *(Reaction Norm Genomic Prediction - RNGP)* This will be your **working directory**
+
+# **Description** 
+
+**One Sentence Summary**
+
+The aim of this study is to predict grain yield (tons/hect.) of a set of maize hybrids sharing a common parent by using their genomic and reaction norm data. 
+
+**General Summary**
+
+Grain yield is one of the most important agronomic traits of interest when studying maize. Grain yield is a complex trait that is controlled by many small-effect loci. Therefore, it is difficult to narrow down on the individual genes acting on this trait without reliable modeling scenarios and sufficient data. Aside from genetic variation, grain yield performance of genotypes is also impacted by their environment and genotype-by-environment (GxE) interaction effects. GxE effects arise when a genotype performs differently depending on the environment in which it is in. Thus, it is crucial to account for these additional sources of variation in the model to generate accurate predictions for breeding scenarios where certain genotypes/environments have not been observed/experimented.
+
+GxE can be modeled in terms of the differential mean response across environments $(A)$ or in terms of all the combinations of the genotype:environment $(B)$. The former may be considered to be more computationally efficient than the latter because it requires less terms to be iterated through when performing genomic predictions.
+
+- $(A):$
+
+Regression on the mean model (Finlay-Wilkinson): $y$ is the vector for the dependent variable, $\mu$ is the grand mean, $G_{i}$ is the effect of the $ith$ genotype, $E_{j}$ is the effect of the $jth$ environment, $b_{i}E_{j}$ is the reaction norm parameter effect of the $ith$ genotype in the $jth$ environment, and $\varepsilon$ is the residual error not explained by the model.
+
+$$y=\mu+G_{i}+E_{j}+b_{i}E_{j}+\varepsilon$$
+
+
+
+- $(B):$
+
+Additive effects model: $y$ is the vector for the dependent variable, $\mu$ is the grand means, $G_{i}$ is the effect of the $ith$ genotype, $E_{j}$ is the effect of the $jth$ envvironment, $GE_{ij}$ is the GxE interaction effect of the $ith$ genotype in the $jth$ environment, and $\varepsilon$ is the residual error not explained by the model.
+
+$$y=\mu+G_{i}+E_{j}+GE_{ij}+\varepsilon$$
+
+This study used the Genomes to Fields (G2F) 2020 and 2021 data set with the intention of conducting genomic prediction for grain yield (tons/hect.) using reaction norm parameters. Three hybrid tester populations derived from the cross between ex-PVP inbreds (PHK76, PHP02, and PHZ51) and the doubled haploid Wisconsin Stiff Stalk MAGIC population (W10004) were analyzed for a total of 174 hybrids. The study consisted of 29 unique environments across the U.S. to get the full scope of GxE patterns. The photothermal ratio (PTR) was used as a biologically-relevant weather parameter to numerically order the environments to obtain quantified values for grain yield stability for each hybrid. Two different genomic prediction models were conducted (refer to $A$ and $B$) to compare the results. 
+
+# **Visualize Environments/Trials**
+
+## Data File(s) Needed:
+
+-   envRtype.txt
+
+## Code
+
+Load `envRtype.txt` -- This data set contains the subset of environments that will be considered for the analysis. The hybrid populations used in the study were planted in these locations. There are **29 total environments (state:year combinations)**. 
+
+```{r Map Data, echo=T}
+#load libraries
+pacman::p_load(readr, ggplot2, maps, ggrepel)
+
+#refer to data set in github repository
+git_path <- "https://raw.githubusercontent.com/fatmaoz25/ReactionNormGenomicPrediction/refs/heads/main"
+locations_file <- "envRtype.txt"
+locations_path <- file.path(git_path, locations_file)
+
+#table summary
+locations <- read.table(locations_path, header=T)
+head(locations)
+dim(locations)
+
+#generate U.S. map with state boundaries
+us_map <- map_data("state")
+
+```
+
+The figure below displays the environments where each of the hybrid populations were planted and considered for this study. There were 11 environments containing the PHK76 population, 14 environments with PHP02, and 20 environments with PHZ51. Not every tester was featured in every environment because of growth limitations of regionally adapted genotypes. PHK76 is adapted to the Midwest, PHP02 to the North, and PHZ51 to the South.
+
+```{r Map Figure, echo=F, fig.height=4.5, fig.width=11}
+tester_counts <- locations[,c(1,9)]
+
+PHK76_count <- (tester_counts[grep("PHK76", tester_counts$Tester),])
+PHK76_count <- length(PHK76_count$env)
+print(paste("Number of Environments with PHK76:", PHK76_count))
+
+PHP02_count <- (tester_counts[grep("PHP02", tester_counts$Tester),])
+PHP02_count <- length(PHP02_count$env)
+print(paste("Number of Environments with PHP02:", PHP02_count))
+
+
+PHZ51_count <- (tester_counts[grep("PHZ51", tester_counts$Tester),])
+PHZ51_count <- length(PHZ51_count$env)
+print(paste("Number of Environments with PHZ51:", PHZ51_count))
+
+p <- ggplot() +
+  geom_polygon(data = us_map, aes(x=long, y=lat, group=group), fill="white", color="gray90") +
+  geom_point(data=locations, aes(x=lon, y=lat, color=Tester), size=2) +
+  geom_text_repel(data=locations, aes(x=lon, y=lat, label=location), size=3,
+                  position=position_jitter(width=0.5, height=0.5)) +
+  theme_bw() +
+  labs(title="") +
+  facet_grid(~year) +
+  scale_color_brewer(palette = "Set1") +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.text.x = element_text(size = 12),  # Change this value for x-axis tick label size
+    axis.text.y = element_text(size = 12),  # Change this value for y-axis tick label size
+    axis.title.x = element_text(size = 20),  # Change this value for x-axis label size
+    axis.title.y = element_text(size = 20),
+    legend.background = element_rect(fill = alpha("gray80", 5), size = 0.5, linetype = "solid"),
+    legend.key.height = unit(0.1, 'cm'),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = c(0.59, 0.15)
+  ) +
+  scale_x_continuous("Longitude") +
+  scale_y_continuous("Latitude")
+
+# Display the plot
+print(p)
+
+rm(list=ls())
+```
+
+# **Analysis of Variance (ANOVA)**
+
+## Data File(s) Needed:
+
+-   g2f_2020_phenotypic_clean_data.csv
+-   g2f_2021_phenotypic_clean_data.csv
+
+## Code
+
+Load `g2f_2020_phenotypic_clean_data.csv` and `g2f_2021_phenotypic_clean_data.csv` -- The following code combines the 2020 and 2021 G2F data frames for the 29 environments that are of interest for this study.The columns of the data frame are displayed to show the various types of data collected for each observation/hybrid that was planted. For this study, we will be focusing on the column for grain yield (bushels/acre) since this is the trait we want to ultimately analyze. 
+
+```{r ANOVA data}
+#load libraries
+pacman::p_load(readr, nlme, sjstats, lme4, RColorBrewer, dplyr, ggplot2, tidyverse, ggrepel, caret, MuMIn)
+
+#refer to data set in github repository
+git_path <- "https://raw.githubusercontent.com/fatmaoz25/ReactionNormGenomicPrediction/refs/heads/main"
+df20_file <- "g2f_2020_phenotypic_clean_data.csv"
+df20_path <- file.path(git_path, df20_file)
+df20 <- read.csv(df20_path)
+
+
+df20 <- df20[df20$Field.Location %in% c("DEH1","GAH1","INH1","MNH1","NEH1","NEH2","NEH3","OHH1","TXH1","TXH2","WIH1","WIH2"),] #environments for 2020
+
+df21_file <- "g2f_2021_phenotypic_clean_data.csv"
+df21_path <- file.path(git_path, df21_file)
+df21 <- read.csv(df21_path)
+df21 <- df21[df21$Field.Location %in% c( "DEH1", "GAH1", "ILH1", "MNH1", "NCH1", "NEH1", "SCH1", "TXH2", "TXH3", "WIH1", "WIH2", "WIH3","IAH1", "IAH2", "IAH3", "IAH4", "MIH1"),] #environments for 2021
+
+df <- rbind(df20,df21)
+df$Env <- paste(df$Field.Location,df$Year, sep = ".")
+df <- df[!df$Replicate %in% c(3,4),]
+colnames(df)
+```
+Next, we have to run an analysis of variance (ANOVA) to partition the variance components for grain yield in order to obtain heritability estimates. Heritability reveals how well a phenotype is at indicating the breeding value of a genotype that has multiple replicates in multi-environment trials (MET). It is calculated as the ratio between the genotypic variance and the phenotypic variance, thus we can estimate how much of the phenotypic variance is attributed to genetic influences. 
+
+This study uses the **Model II ANOVA** in particular, which requires a continuous dependent variable with **random** categorical predictors. This implies that the levels incorporated for the different predictors are sampled from a random population of all possible levels. Treating all factors as random is ideal for this situation since we are not restricting our inferences to ONLY the environments and genotypes observed in this study.
+
+The data used here contains both cross-sectional and longitudinal clustering. The genotypes are assigned to multiple environment, range, and pass levels (cross-sectional clustering) with two replicates each (longitudinal clustering). This clustering violates independence assumptions of a simple linear regression model where there is only a single fixed effect (complete pooling), so we have to use a mixed effects linear model (MLM) to account for hierarchical data structures (partial pooling).
+
+The following code formats the variables of interest as factors to make them compatible for the `lmer()` function. Since each of the observations within these variables is labeled as a random, independent number, we do not want the model to assume that these observations are numerical/ordinal (ordered). Instead we want the model to treat them as nominal (unordered) labels. The default estimation method for `lmer()` is restricted maximum likelihood (REML). REML is an unbiased estimator for variance components because it removes degrees of freedom for every fixed effect estimated for the predictors. Thus, it does not underestimate the variance and works well for smaller sample sizes within the clusters (unlike maximum likelihood (ML)).
+
+The following equation shows the random effects model that was used to dissect the variance components and to calculate the best linear unbiased predictor (BLUP) values for grain yield:
+
+$$Grain \ Yield_{ijklm}=\mu+Genotype_{i}+Environment_{j}+GE_{ij}+Range_{k}+Row_{l}+Rep_{(j)m}+\varepsilon_{ijklm}$$
+
+$\mu$ is the mean grain yield of the population, $Genotype_{i}$ is the effect of the genotype, $Environment_{j}$ is the effect of the environment, $GE_{ij}$ is the effect of GxE interactions, $Range_{k}$ is the effect of the range, $Row_{l}$ is the effect of the row, $Rep_{(j)m}$ is the effect of the replicate, and $\varepsilon_{ijklm}$ is the residual error not explained by the model. **Since all the predictors are treated as random, they are assumed to be normally distributed**
+
+*note: grain yield is converted from bushels/acre to tons/hect. for the model.
+```{r ANOVA}
+df$Range <- as.factor(df$Range)
+df$Pass <- as.factor(df$Pass)
+df$Replicate  <- as.factor(df$Replicate )
+df$Pedigree <- as.factor(df$Pedigree)
+df$Env <- as.factor(df$Env)
+df$Grain.Yield..bu.A. <- as.numeric(df$Grain.Yield..bu.A.)
+
+anova<- lmer(Grain.Yield..bu.A.*.0673 ~
+               (1|Pedigree)+
+               (1|Env)+
+               (1|Pedigree:Env)+
+               (1|Range)+
+               (1|Pass)+
+               (1|Replicate:Env), df )
+summary(anova)
+```
+
+Next, we have to compute some metrics to assess the performance of the ANOVA model. The coefficient of variation (cv) shows the relative variability of the datapoints about the mean. The cv is .8%, indicating that the data has tight clustering and low dispersion. 
+
+The root mean square error (RMSE) tells us how close the predicted values are to the actual values. In this case, the computed rmse is 1.38, which means the model has good to moderate fit.
+
+The $R^2$ value of 0.75 indicates the fraction of the variance explained by the fixed and random effects, which is moderately high.
+
+```{r ANOVA outputs, echo=F}
+print(paste("Coefficient of Variation", cv(anova)))
+
+rmse<- rmse(anova)
+print(paste("rmse", rmse))
+
+
+R <- MuMIn::r.squaredGLMM(anova)[,2]
+print(paste("R", R))
+
+```
+
+To determine the heritability for grain yield, the variance components due to each factor must be extracted to plug-in scaled values for the following equation:
+
+$$Heritability=\frac{\sigma_{G}}{ \sigma_{G}+\frac{\sigma_{GE}}{n_{E}}+\frac{\sigma_\varepsilon}{n_{E}*n_{rep}}}$$
+where $\sigma_{G}$ is the genotype effects' variance, $\sigma_{GE}$ is the GxE effects' variance, $\sigma_{\varepsilon}$ is the residual error variance, $n_{E}$ is the number of environments, and $n_{rep}$ is the number of reps.
+
+The heritability of 85% is sufficient for a trait as complex as grain yield. This indicates that the expressed phenotypes for each genotype are heritable between the two reps and across different environments.
+
+
+```{r Varcomp, echo=T}
+VC<-as.data.frame(print(VarCorr(anova ), comp=c("Variance")))
+
+VC$Percent<-round(VC$vcov/sum(VC$vcov)*100,2)
+      
+heritability <- VC[2,6] / (VC[2,6] +  VC[1,6]/length(unique(df$Env)) +  (VC[7,6]/length(unique(df$Env))*2))
+
+VC[,7] <-rmse
+VC[,8] <-heritability
+VC[,9] <-R
+names(VC)[7:9] <- c("Rmse","Heritability","R")
+head(VC)
+
+head(VC)
+dim(VC)
+```
+
+The grain yield BLUPs were calculated by adding the predicted GxE effects for an individual (using `coef()`) with the conditional mode of an individual's environmental and genotype effect (using `ranef()`).
+```{r ANOVA Summary, echo=T}
+E <- ranef(anova)$'Env'
+G <- ranef(anova)$'Pedigree'
+GE <- coef(anova)$'Pedigree:Env'
+head(E)
+dim(E)
+head(G)
+dim(E)
+head(GE)
+dim(GE)
+```
+After calculating the BLUPs, they are stored in a separate data frame where ONLY the genotypes with a Wisconsin stiff stalk parent are kept.
+
+```{r ANOVA format, echo=F}
+GE[,2] <- rownames(GE)
+
+GE$Pedigree <- lapply(strsplit(as.character(GE$V2), "\\:"), "[", 1)
+GE$Env <- lapply(strsplit(as.character(GE$V2), "\\:"), "[", 2)
+GE <- as.data.frame(lapply(GE, unlist))
+names(GE)[1:2] <- c("Yield","interaction" )
+
+for (k in 1:nrow(GE)){
+  GE[,1][k]<-GE[,1][k]+E$`(Intercept)`[row.names(E)==GE$Env[k]]
+}
+
+for (k in 1:nrow(GE)){
+  GE[,1][k]<-GE[,1][k]+G$`(Intercept)`[row.names(G)==GE$Pedigree[k]]
+}
+
+GE <- GE[grepl( 'W10004', GE$Pedigree   ), ]
+GE$Tester <- lapply(strsplit(as.character(GE$Pedigree), "\\/"), "[", 2)
+GE$Inbred <- lapply(strsplit(as.character(GE$Pedigree), "\\/"), "[", 1)
+GE <- as.data.frame(lapply(GE, unlist))
+
+GE$Location <- lapply(strsplit(as.character(GE$Env), "\\."), "[", 1)
+GE$Year <- lapply(strsplit(as.character(GE$Env), "\\."), "[", 2)
+GE <- as.data.frame(lapply(GE, unlist))
+head(GE)
+dim(GE)
+```
+
+
+# **Environmental Index Search**
+
+## Data File(s) Needed:
+
+- envRtype.txt
+- df.clim.csv
+- Yield.wide.na.csv
+- env.index.phk76.GY.csv
+- env.index.php02.GY.csv
+- env.index.phz51.GY.csv
+
+## Code
+
+The first step in determining the environmental index is to load the `Yield.wide.na.csv` to calculate the mean grain yield value within environments for each tester population.
+
+```{r Data frames format}
+rm(list=ls())
+#load packages
+pacman::p_load(dplyr, EnvRtype)
+git_path <- "https://raw.githubusercontent.com/fatmaoz25/ReactionNormGenomicPrediction/refs/heads/main"
+
+yield_file <- "Yield.wide.na.csv"
+yield_path <- file.path(git_path, yield_file)
+yield <- read.csv(yield_path)
+
+df.clim_file <- "df.clim.csv"
+df.clim_path <- file.path(git_path, df.clim_file)
+df.clim <- data.table::fread(df.clim_path)  %>% as.data.frame()
+
+#calculate mean grain yield for each environment
+yield <- cbind(yield$Inbred, stack(yield[,3:ncol(yield)]))
+yield <- yield %>% tidyr::separate(ind, into = c("Tester", "Env"), sep = "_")
+names(yield) <- c("Inbred", "Yield", "Tester", "env")
+yield <- yield %>% group_by(env,Tester) %>% mutate(Mean = mean(Yield)) %>% as.data.frame()
+
+#split environmental means according to tester
+phk76 <- yield[yield$Tester=="PHK76",]
+php02 <- yield[yield$Tester=="PHP02",]
+phz51 <- yield[yield$Tester=="PHZ51",]
+phk76 <- phk76[!duplicated(phk76$env),][,c(4,5)]
+php02 <- php02[!duplicated(php02$env),][,c(4,5)]
+phz51 <- phz51[!duplicated(phz51$env),][,c(4,5)]
+
+head(phk76)
+dim(phk76)
+head(php02)
+dim(php02)
+head(phz51)
+dim(phz51)
+head(df.clim[,c(4,12,24,30,33)])
+```
+ 
+Using the `df.clim` dataset, perform max-min normalization on the day length and growing degree days (GDD) vectors to scale them to be between 0-1. Next, use the normalized values to calculate the photothermal ratio (PTR).
+$$PTR=\frac{normalized\ daylength}{normalized\ GDD}$$
+The figure below shows PTR plotted from the planting start date to end date. PTR values spiked in numerous environments on certains days between day 0 to day 30. PTR was relatively low in all environments after day 30, but some spikes were seen again toward the end date of day 126. There are not any clear patterns in PTR across the growing season.
+
+```{r PTR calc}
+pacman::p_load(ggplot2, dplyr)
+
+#Assuming your data frame is named 'data' and has columns 'Environment', 'DL', 'GDD', 'Precipitation'
+normalize <- function(x) {
+  (x - min(x)) / (max(x) - min(x))
+}
+
+df.clim <- df.clim %>%
+  group_by(env) %>%
+  mutate(
+    DL_normalized = normalize(N),
+    GDD_normalized = normalize(GDD),
+    Precipitation_normalized = normalize(PRECTOT)
+  ) %>%
+  ungroup() %>% as.data.frame()
+
+head(df.clim[,c(4,12,35,36)])
+
+df.clim$PTR_normalized <-df.clim$DL_normalized/df.clim$GDD_normalized
+
+
+p<-ggplot(df.clim, aes(x=daysFromStart, y=PTR_normalized, group=env)) +
+  geom_line(aes(color=env))
+#  geom_point(aes(color=supp))
+p
+```
+
+The chunk of code below first creates a data frame that calculates the mean PTR value for each window size for each of the days in each environment (day 1 - day 126). Next, it calculates the mean PTR value in each environment for all time window sizes from day 1 - day 126.
+
+```{r Sliding window calc}
+pacman::p_load(data.table, zoo)
+
+#PTR wide format 
+temperature_data <- reshape2::dcast(df.clim,  daysFromStart~env, value.var = "PTR")
+head(temperature_data[1:5])
+names(temperature_data)[1] <- "day"
+dim(temperature_data)
+
+set.seed(123) #Ensure reproducibility
+
+#Define a function to calculate mean temperatures for all window sizes for a given environment
+calculate_mean_temps_for_all_windows <- function(temperature_vector) {
+  results <- list()
+  total_days <- length(temperature_vector)
+  
+  for (window_size in 1:total_days) {
+    mean_temps <- sapply(1:(total_days-window_size+1), function(start_day) {
+      mean(temperature_vector[start_day:(start_day+window_size-1)])
+    })
+    results[[as.character(window_size)]] <- mean_temps
+  }
+  
+  return(results)
+}
+
+#Apply the function to each environment column (excluding the 'day' column)
+all_env_means <- list()
+
+for (env in names(temperature_data)[-1]) { # Skip 'day' column
+  env_data <- temperature_data[[env]]
+  all_env_means[[env]] <- calculate_mean_temps_for_all_windows(env_data)
+}
+
+
+# Initialize an empty data.table to store the results
+results_dt <- data.table(environment = character(),
+                         window_size = integer(),
+                         start_day = integer(),
+                         end_day = integer(),
+                         mean_temperature = numeric())
+
+# Environment names, assuming they were the column names in your original temperature_data
+environment_names <- names(temperature_data)[-1]
+
+# Flatten the results and populate results_dt
+for (i in seq_along(all_env_means)) {
+  env_results <- all_env_means[[i]] # Results for the current environment
+  env_name <- environment_names[i]
+  
+  for (window_size in seq_along(env_results)) {
+    window_data <- env_results[[window_size]]
+    if (is.null(window_data)) next # Skip if there's no data for this window size
+    
+    # Calculate start and end days for each window
+    start_days <- seq_len(length(window_data))
+    end_days <- start_days + window_size - 1
+    
+    # Append to results_dt
+    results_dt <- rbindlist(list(results_dt, data.table(environment = env_name,
+                                                        window_size = window_size,
+                                                        start_day = start_days,
+                                                        end_day = end_days,
+                                                        mean_temperature = window_data)),
+                            use.names = TRUE, fill = TRUE)
+  }
+}
+
+results_dt <- results_dt %>% as.data.frame()
+
+head(results_dt)
+names(results_dt)[1] <- "env"
+dim(results_dt)
+```
+
+The following chunks of code go through the sliding window analysis for each tester population separately. A data frame is created displaying the mean PTR values (`mean_temperature` vector) for window sizes from 1 day - 126 days of all the possible day combinations. The mean PTR values for each window size and day combination (w:d) were calculated for each environment for each tester population. Next, the correlation (Pearson) between the mean PTR for each w:d and the mean grain yield across all the environments. Thus, the x-axis contained the PTR values for the specified window sizes and the y-axis contained the grain yield BLUP mean values for the environments. The time window corresponding to the highest correlation between the mean PTR values and grain yield BLUP means across all environments was noted, and the x-axis values were retained as the environment index values.
+
+
+- **PHK76 Analysis**
+```{r PHK76 corr}
+pacman::p_load(ggplot2,ggrepel,ggpubr)
+
+phk76.cor <- dplyr::left_join(results_dt, phk76, by="env")
+phk76.cor <- na.omit(phk76.cor)
+
+phk76.cor <- phk76.cor %>% group_by(start_day,end_day) %>% mutate(cor=cor(mean_temperature,Mean,use = "complete.obs")) %>% as.data.frame()
+head(phk76.cor)
+
+max_cor <- max(phk76.cor$cor)
+max_cor
+
+git_path <- "https://raw.githubusercontent.com/fatmaoz25/ReactionNormGenomicPrediction/refs/heads/main"
+
+phk_file <- "env.index.phk76.GY.csv"
+phk_path <- file.path(git_path, phk_file)
+dff <- read.csv(phk_path)
+
+p <- ggplot(phk76.cor,aes(x= start_day ,y=end_day))+
+  geom_tile(aes(fill=cor))+
+  annotate("segment",x=0,xend=unique(dff$start_day), y=unique(dff$end_day), yend=unique(dff$end_day),colour="black",size=0.5,linetype="dashed")+
+  annotate("segment",x=unique(dff$start_day),xend=unique(dff$start_day), y=0, yend=unique(dff$end_day),colour="black",size=0.5,linetype="dashed")+
+  #annotate("segment", x = 0, xend = unique(dff$start_day), y = dff$end_day, yend = unique(dff$end_day),colour = "black")+
+  geom_point(dff, mapping=aes(start_day, end_day),shape=1, size=4, color="black")+
+  xlab("Begining of window (days)")+
+  annotate("text",
+           label = paste( "(", unique(dff$start_day),",",unique(dff$end_day)  ,")",   sep=""),
+           x = dff$start_day+17, y = dff$end_day, colour = "black"
+  )+
+  #  geom_label(label = paste( "(", unique(dff$start_day),",",unique(dff$end_day)  ,")",   sep=""))+
+  ylab("End of window (days)")+
+  theme_bw()+
+  scale_fill_distiller("cor (R)",palette = "Spectral",breaks = seq(from = -1, to = 1, by = 0.2))+
+  #  scale_fill_continuous(colors = "viridis")+
+  #  scale_fill_viridis_c()+
+  # scale_fill_gradient2(low = "darkgreen", high = "brown",mid="white",midpoint=0,breaks = seq(from = -1, to = 1, by = 0.2))+
+  theme(panel.background = element_blank(),
+        axis.line = element_line(colour="black"))+
+  #ggtitle(name_cor_plot[q])+
+  theme(plot.title = element_text(hjust = 0.5),
+        #  text = element_text(family = "sans"),
+        legend.position = c(0.9,0.3),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.key.size = unit(12,"pt"))+
+  scale_x_continuous(breaks = c(0,10,20,30,40,50,60,70,80,90,100,110,120))+
+  scale_y_continuous(breaks = c(0,10,20,30,40,50,60,70,80,90,100,110,120))
+p
+
+p1 <- ggplot(data= dff, aes(x=mean_temperature, y=Mean, group=1)) +
+  geom_smooth(method = lm, se = T)+
+  geom_point(color="red", size=3)+
+  geom_text_repel(aes(label = env),size=3 )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  stat_cor(method = "pearson")+
+  scale_y_continuous("Environmental mean of yield (t/ha)")+
+  scale_x_continuous( paste("PTR"," ", "(", unique(dff$start_day),",",unique(dff$end_day)  ,")",   sep=""))
+p1
+```
+
+- **PHP02 Analysis**
+
+```{r PHP02 corr, echo=F}
+pacman::p_load(ggplot2,ggrepel,ggpubr)
+
+php02.cor <- dplyr::left_join(results_dt, php02, by="env")
+php02.cor <- na.omit(php02.cor)
+
+php02.cor <- php02.cor %>% group_by(start_day,end_day) %>% mutate(cor=cor(mean_temperature,Mean,use = "complete.obs")) %>% as.data.frame()
+head(php02.cor)
+php02.cor <- na.omit(php02.cor)
+
+max_cor <- max(php02.cor$cor)
+max_cor
+
+git_path <- "https://raw.githubusercontent.com/fatmaoz25/ReactionNormGenomicPrediction/refs/heads/main"
+
+php_file <- "env.index.php02.GY.csv"
+php_path <- file.path(git_path, php_file)
+dff <- read.csv(php_path)
+
+p <- ggplot(php02.cor,aes(x= start_day ,y=end_day))+
+  geom_tile(aes(fill=cor))+
+  annotate("segment",x=0,xend=unique(dff$start_day), y=unique(dff$end_day), yend=unique(dff$end_day),colour="black",size=0.5,linetype="dashed")+
+  annotate("segment",x=unique(dff$start_day),xend=unique(dff$start_day), y=0, yend=unique(dff$end_day),colour="black",size=0.5,linetype="dashed")+
+  #annotate("segment", x = 0, xend = unique(dff$start_day), y = dff$end_day, yend = unique(dff$end_day),colour = "black")+
+  geom_point(dff, mapping=aes(start_day, end_day),shape=1, size=4, color="black")+
+  xlab("Begining of window (days)")+
+  annotate("text",
+           label = paste( "(", unique(dff$start_day),",",unique(dff$end_day)  ,")",   sep=""),
+           x = dff$start_day+17, y = dff$end_day, colour = "black"
+  )+
+  #  geom_label(label = paste( "(", unique(dff$start_day),",",unique(dff$end_day)  ,")",   sep=""))+
+  ylab("End of window (days)")+
+  theme_bw()+
+  scale_fill_distiller("cor (R)",palette = "Spectral",breaks = seq(from = -1, to = 1, by = 0.2))+
+  #  scale_fill_continuous(colors = "viridis")+
+  #  scale_fill_viridis_c()+
+  # scale_fill_gradient2(low = "darkgreen", high = "brown",mid="white",midpoint=0,breaks = seq(from = -1, to = 1, by = 0.2))+
+  theme(panel.background = element_blank(),
+        axis.line = element_line(colour="black"))+
+  #ggtitle(name_cor_plot[q])+
+  theme(plot.title = element_text(hjust = 0.5),
+        #  text = element_text(family = "sans"),
+        legend.position = c(0.9,0.3),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.key.size = unit(12,"pt"))+
+  scale_x_continuous(breaks = c(0,10,20,30,40,50,60,70,80,90,100,110,120))+
+  scale_y_continuous(breaks = c(0,10,20,30,40,50,60,70,80,90,100,110,120))
+p
+
+p1 <- ggplot(data= dff, aes(x=mean_temperature, y=Mean, group=1)) +
+  geom_smooth(method = lm, se = T)+
+  geom_point(color="red", size=3)+
+  geom_text_repel(aes(label = env),size=3 )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  stat_cor(method = "pearson")+
+  scale_y_continuous("Environmental mean of yield (t/ha)")+
+  scale_x_continuous( paste("PTR"," ", "(", unique(dff$start_day),",",unique(dff$end_day)  ,")",   sep=""))
+p1
+```
+
+- **PHZ51 Analysis**
+
+```{r PHZ51 corr, echo=F}
+pacman::p_load(ggplot2,ggrepel,ggpubr)
+
+phz51.cor <- dplyr::left_join(results_dt, phz51, by="env")
+phz51.cor <- na.omit(phz51.cor)
+
+phz51.cor <- phz51.cor %>% group_by(start_day,end_day) %>% mutate(cor=cor(mean_temperature,Mean,use = "complete.obs")) %>% as.data.frame()
+head(phz51.cor)
+phz51.cor <- na.omit(phz51.cor)
+
+max_cor <- max(phz51.cor$cor)
+max_cor
+
+git_path <- "https://raw.githubusercontent.com/fatmaoz25/ReactionNormGenomicPrediction/refs/heads/main"
+
+phz_file <- "env.index.phz51.GY.csv"
+phz_path <- file.path(git_path, phz_file)
+dff <- read.csv(phz_path)
+
+p <- ggplot(phz51.cor,aes(x= start_day ,y=end_day))+
+  geom_tile(aes(fill=cor))+
+  annotate("segment",x=0,xend=unique(dff$start_day), y=unique(dff$end_day), yend=unique(dff$end_day),colour="black",size=0.5,linetype="dashed")+
+  annotate("segment",x=unique(dff$start_day),xend=unique(dff$start_day), y=0, yend=unique(dff$end_day),colour="black",size=0.5,linetype="dashed")+
+  #annotate("segment", x = 0, xend = unique(dff$start_day), y = dff$end_day, yend = unique(dff$end_day),colour = "black")+
+  geom_point(dff, mapping=aes(start_day, end_day),shape=1, size=4, color="black")+
+  xlab("Begining of window (days)")+
+  annotate("text",
+           label = paste( "(", unique(dff$start_day),",",unique(dff$end_day)  ,")",   sep=""),
+           x = dff$start_day+17, y = dff$end_day, colour = "black"
+  )+
+  #  geom_label(label = paste( "(", unique(dff$start_day),",",unique(dff$end_day)  ,")",   sep=""))+
+  ylab("End of window (days)")+
+  theme_bw()+
+  scale_fill_distiller("cor (R)",palette = "Spectral",breaks = seq(from = -1, to = 1, by = 0.2))+
+  #  scale_fill_continuous(colors = "viridis")+
+  #  scale_fill_viridis_c()+
+  # scale_fill_gradient2(low = "darkgreen", high = "brown",mid="white",midpoint=0,breaks = seq(from = -1, to = 1, by = 0.2))+
+  theme(panel.background = element_blank(),
+        axis.line = element_line(colour="black"))+
+  #ggtitle(name_cor_plot[q])+
+  theme(plot.title = element_text(hjust = 0.5),
+        #  text = element_text(family = "sans"),
+        legend.position = c(0.9,0.3),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.key.size = unit(12,"pt"))+
+  scale_x_continuous(breaks = c(0,10,20,30,40,50,60,70,80,90,100,110,120))+
+  scale_y_continuous(breaks = c(0,10,20,30,40,50,60,70,80,90,100,110,120))
+p
+
+p1 <- ggplot(data= dff, aes(x=mean_temperature, y=Mean, group=1)) +
+  geom_smooth(method = lm, se = T)+
+  geom_point(color="red", size=3)+
+  geom_text_repel(aes(label = env),size=3 )+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  stat_cor(method = "pearson")+
+  scale_y_continuous("Environmental mean of yield (t/ha)")+
+  scale_x_continuous( paste("PTR"," ", "(", unique(dff$start_day),",",unique(dff$end_day)  ,")",   sep=""))
+p1
+```
+
+# **Reaction Norm Modeling**
+
+## Data Files Needed:
+
+- Yield.wide.na.csv
+- env.index.phk76.GY.csv
+- env.index.php02.GY.csv
+- env.index.phz51.GY.csv
+
+## Code:
+
+The following code goes through each tester population to plot the grain yield plasticity parameters for each hybrid -- the fit slopes and intercepts when plotting the hybrid grain yield BLUPs against the PTR values identified from the environmental index search.
+
+- **PHK76 Analysis**
+```{r}
+pacman::p_load(ggplot2,ggrepel,ggpubr,dplyr,data.table)
+
+git_path <- "https://raw.githubusercontent.com/fatmaoz25/ReactionNormGenomicPrediction/refs/heads/main"
+
+yield_file <- "Yield.wide.na.csv"
+yield_path <- file.path(git_path, yield_file)
+GY.wide <- read.csv(yield_path)
+
+GY.phk76 <- GY.wide[,c(2,3,4,5,6,7,8,9,10,11,12,13)]
+GY.phk76 <- cbind(GY.phk76[,1], stack(GY.phk76[,2:ncol(GY.phk76)]))
+names(GY.phk76) <- c("Inbred", "GY", "env")
+
+GY.phk76 <- GY.phk76 %>% tidyr::separate(env, into = c("Tester", "env"), sep = "_")
+head(GY.phk76)
+dim(GY.phk76)
+
+phk_file <- "env.index.phk76.GY.csv"
+phk_path <- file.path(git_path, phk_file)
+env.index.phk76.GY <- read.csv(phk_path)
+head(env.index.phk76.GY)
+dim(env.index.phk76.GY)
+
+GY.phk76.stability <- dplyr::left_join(GY.phk76, env.index.phk76.GY, by="env")
+head(GY.phk76.stability)
+dim(GY.phk76.stability)
+
+```
+
+- **PHP02 Analysis**
+
+```{r}
+
+git_path <- "https://raw.githubusercontent.com/fatmaoz25/ReactionNormGenomicPrediction/refs/heads/main"
+
+yield_file <- "Yield.wide.na.csv"
+yield_path <- file.path(git_path, yield_file)
+GY.wide <- read.csv(yield_path)
+
+GY.php02 <- GY.wide[,c(2,14:27)]
+head(GY.php02)
+GY.php02 <- cbind(GY.php02[,1], stack(GY.php02[,2:ncol(GY.php02)]))
+names(GY.php02) <- c("Inbred", "GY", "env")
+GY.php02 <- GY.php02 %>% tidyr::separate(env, into = c("Tester", "env"), sep = "_")
+
+head(GY.php02)
+
+php_file <- "env.index.php02.GY.csv"
+php_path <- file.path(git_path, php_file)
+env.index.php02.GY <- read.csv(php_path)
+head(env.index.php02.GY)
+
+
+GY.php02.stability <- dplyr::left_join(GY.php02, env.index.php02.GY, by="env")
+head(GY.php02.stability)
+```
+
+- **PHZ51 Analysis**
+
+```{r}
+
+git_path <- "https://raw.githubusercontent.com/fatmaoz25/ReactionNormGenomicPrediction/refs/heads/main"
+
+yield_file <- "Yield.wide.na.csv"
+yield_path <- file.path(git_path, yield_file)
+GY.wide <- read.csv(yield_path)
+
+GY.phz51 <- GY.wide[,c(2,28:47)]
+head(GY.phz51)
+GY.phz51 <- cbind(GY.phz51[,1], stack(GY.phz51[,2:ncol(GY.phz51)]))
+names(GY.phz51) <- c("Inbred", "GY", "env")
+GY.phz51 <- GY.phz51 %>% tidyr::separate(env, into = c("Tester", "env"), sep = "_")
+
+head(GY.phz51)
+
+phz_file <- "env.index.phz51.GY.csv"
+phz_path <- file.path(git_path, phz_file)
+env.index.phz51.GY <- read.csv(phz_path)
+head(env.index.phz51.GY)
+
+
+GY.phz51.stability <- dplyr::left_join(GY.phz51, env.index.phz51.GY, by="env")
+head(GY.phz51.stability)
+```
+
+
+The data sets for the individual tester populations from the above code are combined below to create a combined data set to display the reaction norms of each hybrid across the numerically-ordered environments according to increasing mean PTR. 
+
+- **Reaction Norm Plotting**
+
+```{r}
+
+GY.stability <- rbind(GY.phk76.stability,GY.php02.stability,GY.phz51.stability)
+head(GY.stability)
+
+GY.stability <- GY.stability %>% group_by(env,Tester) %>% mutate(ScaledGY = scale(GY, center = TRUE, scale = TRUE)) %>% as.data.frame()
+
+GY.stability <- GY.stability %>% group_by(Inbred,Tester) %>% dplyr::mutate(Slope = coef(lm(ScaledGY ~ mean_temperature))[2], Intercept = coef(lm(ScaledGY ~ mean_temperature))[1], Predicted.ScaledGY = predict(lm(ScaledGY ~ mean_temperature))) %>% as.data.frame()
+
+GY.stability <- as.data.frame(lapply(GY.stability, unlist))
+GY.stability$Slope <- as.numeric(GY.stability$Slope)
+
+
+result <- GY.stability %>%  group_by(env,Tester) %>% dplyr::mutate(Meann = mean(Predicted.ScaledGY)) %>% as.data.frame()
+result <- result %>% distinct(env,Tester, .keep_all = TRUE)
+head(result)
+
+
+
+p12<- ggplot(GY.stability, aes(x=mean_temperature, y=Predicted.ScaledGY, group=Inbred, color=Slope)) +
+  geom_line(alpha=0.4) +
+  # geom_smooth(se=F)+
+  geom_point(alpha=0.3)+
+  # geom_text( result, mapping=aes(label = Env, x=Mean, y=Meann-3), color='black', angle=90, size=1, alpha=0.8)+
+  geom_point(result, mapping=aes(x=mean_temperature, y=2.48 ),color="black" ,shape=24,alpha=0.5   )+
+  geom_text_repel(result,mapping=aes(x=mean_temperature, y=2.48, label=env ),color="black",size=2,
+                  force_pull   = 0, # do not pull toward data points
+                  nudge_y      = 0.05,
+                  direction    = "x",
+                  angle        = 90,
+                  hjust        = 0,
+                  segment.size = 0.2,
+                  max.iter = 1e4, max.time = 1
+  )+
+  #scale_color_brewer(palette = "Dark2")+
+  # geom_errorbar(aes(ymin=Mean-sd, ymax=Mean+sd), width=.2,
+  #                position=position_dodge(0.05))+
+  scale_y_continuous(name="Predicted GY")+
+  theme(legend.position="right") +
+  theme_bw()+
+  facet_grid(~Tester,scales ="free_x")+
+  scale_x_continuous(name = "Environmental index"  )+
+  theme(#legend.background = element_blank(),
+    legend.background =  element_rect(fill = alpha("gray80", 0.3) , size=0.2, linetype="solid"),
+    legend.key.height = unit(0.5, 'cm'),
+    panel.grid.major  = element_blank(),
+    panel.grid.minor  = element_blank(),
+    legend.key.size = unit(12,"pt"),
+    axis.text.y = element_text(angle = 90, vjust=0.8,  hjust=0.5),
+    legend.position   = c(0.75, 0.25))+
+  scale_colour_gradient2("Slope", low = "navy", mid = "cyan", high = "red", midpoint = mean(GY.stability$Slope, na.rm=T) )
+#  guides(color = guide_legend(override.aes = list(size = 1,alpha = 1) ) )+
+#  ggtitle("A) Slope of the temporal plant height across environments")
+
+p12
+```
+
+# **Genomic Prediction**
+
+## Data Files Needed:
+
+- All.Pred.Ability.reactionnorm.csv
+- All.Pred.Ability.reactionnorm.Formatted.csv
+- All.Pred.Ability.additive.csv
+- All.Pred.Ability.additive.Formatted.csv
+
+## Code:
+
+The scripts for the genomic prediction models ($A$ and $B$) were run using the Texas A&M's High-Performance Research Computing (HPRC) due to the computational power required. The code for the genomic prediction models are not included within this RMarkdown file, but can be found in the same GitHub repository.
+
+The code below uses the outputs of the genomic prediction models to make the prediction accuracy figures. They are split according to common plant breeding scenarios (CV0, CV00, CV1, and CV2) as found in (Jarquin, 2017).
+
+```{R additive GP}
+pacman::p_load(readr, ggplot2, ggrepel)
+
+git_path <- "https://raw.githubusercontent.com/fatmaoz25/ReactionNormGenomicPrediction/refs/heads/main"
+
+combined_data_file <- "All.Pred.Ability.additive.csv"
+combined_data_path <- file.path(git_path, combined_data_file)
+combined_data <- read.csv(combined_data_path)
+
+df <- combined_data
+df <- df %>% group_by(CV,Tester) %>% dplyr::summarise(mean =round(mean(cor),2) ,
+                                                      sd =round(sd(cor),2)) %>% as.data.frame()
+
+df$CV <- factor(df$CV ,levels = c("CV1", "CV2", "CV0", "CV00"))
+df$facet <- df$CV
+df$facet <- gsub("CV1", "Unested hybrids in \ntested environments", df$facet)
+df$facet <- gsub("CV2", "Tested hybrids in \ntested environments", df$facet)
+df$facet <- gsub("CV00", "Untested hybrids in \nuntested environments", df$facet)
+df$facet <- gsub("CV0", "Tested hybrids in \nuntested environments", df$facet)
+
+head(df)
+
+df$facet <- factor(df$facet ,levels = c("Tested hybrids in \ntested environments",
+                                        "Unested hybrids in \ntested environments",
+                                        "Tested hybrids in \nuntested environments",
+                                        "Untested hybrids in \nuntested environments"))
+
+p <- ggplot(df, aes(x=Tester, y=mean, fill=Tester)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+  geom_text(aes(label=paste(sprintf("%.2f", mean),  "\u00B1",  sprintf("%.2f", sd), sep=" "),   y=0.12),
+            position=position_dodge(0.9),  angle=90, color="black", size=3.5)+
+  geom_errorbar(aes(ymin=mean, ymax=mean+sd), width=.2,
+                position=position_dodge(.9)) +
+  facet_wrap(~facet)+
+  scale_y_continuous("Prediction ability")+
+  scale_x_discrete("Population")+
+  scale_fill_brewer(palette="Set2")+
+  theme(legend.position = c(0.9,0.35),
+        legend.background = element_blank())
+p
+```
+
+
+```{R reactionnorm GP}
+pacman::p_load(readr, ggplot2, ggrepel)
+
+git_path <- "https://raw.githubusercontent.com/fatmaoz25/ReactionNormGenomicPrediction/refs/heads/main"
+
+combined_data_file <- "All.Pred.Ability.reactionnorm.csv"
+combined_data_path <- file.path(git_path, combined_data_file)
+combined_data <- read.csv(combined_data_path)
+
+df <- combined_data
+df <- df %>% group_by(CV,Tester) %>% dplyr::summarise(mean =round(mean(cor),2) ,
+                                                      sd =round(sd(cor),2)) %>% as.data.frame()
+
+df$CV <- factor(df$CV ,levels = c("CV1", "CV2", "CV0", "CV00"))
+df$facet <- df$CV
+df$facet <- gsub("CV1", "Unested hybrids in \ntested environments", df$facet)
+df$facet <- gsub("CV2", "Tested hybrids in \ntested environments", df$facet)
+df$facet <- gsub("CV00", "Untested hybrids in \nuntested environments", df$facet)
+df$facet <- gsub("CV0", "Tested hybrids in \nuntested environments", df$facet)
+
+head(df)
+
+df$facet <- factor(df$facet ,levels = c("Tested hybrids in \ntested environments",
+                                        "Unested hybrids in \ntested environments",
+                                        "Tested hybrids in \nuntested environments",
+                                        "Untested hybrids in \nuntested environments"))
+
+p <- ggplot(df, aes(x=Tester, y=mean, fill=Tester)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+  geom_text(aes(label=paste(sprintf("%.2f", mean),  "\u00B1",  sprintf("%.2f", sd), sep=" "),   y=0.12),
+            position=position_dodge(0.9),  angle=90, color="black", size=3.5)+
+  geom_errorbar(aes(ymin=mean, ymax=mean+sd), width=.2,
+                position=position_dodge(.9)) +
+  facet_wrap(~facet)+
+  scale_y_continuous("Prediction ability")+
+  scale_x_discrete("Population")+
+  scale_fill_brewer(palette="Set2")+
+  theme(legend.position = c(0.9,0.35),
+        legend.background = element_blank())
+p
+```
